@@ -8,9 +8,9 @@ namespace WindowsRuntimeClasses
 {
     class ClassAndSubclasses
     {
-        public ClassAndSubclasses(Type parent)
+        public ClassAndSubclasses(Type type)
         {
-            this.Type = parent;
+            this.Type = type;
             this.Subclasses = new List<ClassAndSubclasses>();
         }
 
