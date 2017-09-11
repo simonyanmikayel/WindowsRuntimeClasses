@@ -68,7 +68,13 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="This sample demonstrates..." TextWrapping="Wrap" />
+        <AutoSuggestBox x:Name="Control2" 
+                        PlaceholderText="Search..."
+                        QueryIcon="Find" 
+                        TextChanged="Search_TextChanged" 
+                        QuerySubmitted="Search_QuerySubmitted"
+                        SuggestionChosen="Search_SuggestionChosen"
+                        />
         <tvs:TreeView x:Name="sampleTreeView" 
                       Grid.Row="1"
                       Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}" 
