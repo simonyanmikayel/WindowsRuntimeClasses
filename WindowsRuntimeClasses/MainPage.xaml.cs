@@ -16,10 +16,9 @@ namespace WindowsRuntimeClasses
     /// </summary>
     public sealed partial class MainPage : Page
     {
-        Type objectType = typeof(Object);
-        ClassAndSubclasses objectClassAndSubclasses = new ClassAndSubclasses(typeof(Object));
-        Dictionary<String, ClassAndSubclasses> classesDict;
-        TreeNodeData objectTreeNodeData; //TODO - delete this
+        TypeInfo objectTypeInfo = typeof(Object).GetTypeInfo();
+        Dictionary<String, NodeData> classesDict;
+        NodeData objectNode;
 
         public MainPage()
         {
@@ -29,59 +28,66 @@ namespace WindowsRuntimeClasses
             DisplayAssembly(type.GetTypeInfo().Assembly);
         }
 
-        private void AddToSubclasses(Type type)
+        private void AddToSubclasses(TypeInfo typeInfo)
         {
-            TypeInfo typeInfo = type.GetTypeInfo();
             String typeNmae = typeInfo.FullName;
             if (classesDict.ContainsKey(typeNmae))
             {
                 return;
             }
 
-            Type baseType = type.GetTypeInfo().BaseType;
-            String baseTypeNmae = baseType.GetTypeInfo().FullName;
+            Type baseType = typeInfo.BaseType;
+            TypeInfo baseTypeInfo = baseType.GetTypeInfo();
+            String baseTypeNmae = baseTypeInfo.FullName;
             if (!classesDict.ContainsKey(baseTypeNmae))
             {
-                AddToSubclasses(baseType);
+                AddToSubclasses(baseTypeInfo);
             }
-            ClassAndSubclasses parent = classesDict[baseTypeNmae];
-            ClassAndSubclasses child = new ClassAndSubclasses(type);
-            parent.Subclasses.Add(child);
+            NodeData parent = classesDict[baseTypeNmae];
+            NodeData child = new NodeData(typeInfo);
+            parent.SubNodes.Add(child);
             classesDict.Add(typeNmae, child);
         }
 
-        private TreeNodeData AddToTree(ClassAndSubclasses classAndSubclasses)
+        private TreeNode AddToTree(NodeData nodeData)
         {
-            TreeNode treeNode = new TreeNode();
-            foreach (ClassAndSubclasses c in classAndSubclasses.Subclasses)
+            nodeData.TreeNode = new TreeNode() { Data = nodeData };
+            foreach (NodeData subNode in nodeData.SubNodes)
             {
-                treeNode.Add(AddToTree(c).TreeNode);
+                nodeData.TreeNode.Add(AddToTree(subNode));
             }
-            TypeInfo typeInfo = classAndSubclasses.Type.GetTypeInfo();
-            string name = String.Format("{0} ({1})", typeInfo.FullName, treeNode.Count);
-            TreeNodeData treeNodeData = new TreeNodeData() { IsFolder = (treeNode.Count > 0), TreeNode = treeNode, Name = name, NodeClasses = classAndSubclasses };
-            treeNode.Data = treeNodeData;
-            return treeNodeData;
+            nodeData.Name = String.Format("{0} ({1})", nodeData.TypeInfo.Name, nodeData.SubNodes.Count);
+            nodeData.IsFolder = nodeData.SubNodes.Count > 0;
+            return nodeData.TreeNode;
+        }
+
+        private void SortTree(NodeData nodeData)
+        {
+            nodeData.Sort();
+            foreach (NodeData subNode in nodeData.SubNodes)
+            {
+                SortTree(subNode);
+            }
         }
 
         private void DisplayAssembly(Assembly assembly)
         {
-            classesDict = new Dictionary<string, ClassAndSubclasses>();
-            classesDict.Add(objectType.GetTypeInfo().FullName, objectClassAndSubclasses);
+            objectNode = new NodeData(objectTypeInfo);
+            classesDict = new Dictionary<string, NodeData>();
+            classesDict.Add(objectTypeInfo.FullName, objectNode);
             foreach (Type type in assembly.ExportedTypes)
             {
                 TypeInfo typeInfo = type.GetTypeInfo();
-                if (typeInfo.Name.Contains("DependencyObject"))
+                //if (typeInfo.Name.Contains("DependencyObject"))
                 {
                     if (typeInfo.IsClass)
                     {
-                        AddToSubclasses(type);
+                        AddToSubclasses(typeInfo);
                     }
                 }
             }
-            TreeNodeData treeNodeData = AddToTree(objectClassAndSubclasses);
-            objectTreeNodeData = treeNodeData;
-            sampleTreeView.RootNode.Add(treeNodeData.TreeNode);
+            SortTree(objectNode);
+            sampleTreeView.RootNode.Add(AddToTree(objectNode));
             classesDict = null;
         }
 
@@ -117,13 +123,43 @@ namespace WindowsRuntimeClasses
             }
         }
 
-        private Task<List<TreeNodeData>> SearchClass(string text)
+        private int maxSuggestion = 50; 
+        private void SearchNode(NodeData nodeData, string text, List<NodeData> suggestions, int level)
+        {
+            if (level == 0)
+            {
+                if (nodeData.TypeInfo.Name.StartsWith(text))
+                    suggestions.Add(nodeData);
+            }
+            else if (level == 1)
+            {
+                if (nodeData.TypeInfo.Name.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+                    suggestions.Add(nodeData);
+            }
+            else
+            {
+                if (nodeData.TypeInfo.Name.ToLower().Contains(text.ToLower()))
+                    suggestions.Add(nodeData);
+            }
+            foreach (NodeData subNode in nodeData.SubNodes)
+            {
+                SearchNode(subNode, text, suggestions, level);
+                if (suggestions.Count > maxSuggestion)
+                    break;
+            }
+        }
+
+        private Task<List<NodeData>> SearchClass(string text)
         {
             return Task.Run(() =>
             {
-                var suggestions = new List<TreeNodeData>();
+                var suggestions = new List<NodeData>();
                 if (text.Length > 0)
-                    suggestions.Add(objectTreeNodeData);
+                {
+                    //SearchNode(objectNode, text, suggestions, 0);
+                    //SearchNode(objectNode, text, suggestions, 1);
+                    SearchNode(objectNode, text, suggestions, 2);
+                }
                 return suggestions;
             });
         }
@@ -139,10 +175,10 @@ namespace WindowsRuntimeClasses
         /// and also ChosenSuggestion, which is only non-null when a user selects an item in the list.</param>
         private async void Search_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
-            if (args.ChosenSuggestion != null && args.ChosenSuggestion is TreeNodeData)
+            if (args.ChosenSuggestion != null && args.ChosenSuggestion is NodeData)
             {
                 //User selected an item, take an action
-                SelectNode(args.ChosenSuggestion as TreeNodeData);
+                SelectNode(args.ChosenSuggestion as NodeData);
             }
             else if (!string.IsNullOrEmpty(args.QueryText))
             {
@@ -155,9 +191,10 @@ namespace WindowsRuntimeClasses
             }
         }
 
-        private void SelectNode(TreeNodeData treeNodeData)
+        private void SelectNode(NodeData nodeData)
         {
-            sampleTreeView.SelectedItem = treeNodeData.TreeNode;
+            sampleTreeView.SelectedItem = nodeData.TreeNode;
+            sampleTreeView.ScrollIntoView(nodeData.TreeNode, ScrollIntoViewAlignment.Leading);
         }
 
         /// <summary>
@@ -169,7 +206,7 @@ namespace WindowsRuntimeClasses
         /// <param name="args">The args contain SelectedItem, which contains the data item of the item that is currently highlighted.</param>
         private void Search_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
         {
-            var control = args.SelectedItem as TreeNodeData;
+            var control = args.SelectedItem as NodeData;
 
             //Don't autocomplete the TextBox when we are showing "no results"
             if (control != null)
